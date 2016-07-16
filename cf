@@ -1,0 +1,194 @@
+#!/usr/bin/python
+
+import sys
+import os
+import yaml
+import gzip
+import StringIO
+import base64
+
+
+# # Example input YAML data
+# #=========================
+# 
+# # If output-file is null, stdout will be used.
+# output-file: user-data.yml
+# 
+# variable-mapping:
+#   key: value
+#   key: value
+#   ...
+# 
+# cloud-configs:
+# - file.yml
+# - file.yml
+#   ...
+
+
+def usage():
+    sys.stderr.write("Usage: cf [-s] cloud-configs.yml\n")
+    sys.stderr.write("    -s\n")
+    sys.stderr.write( \
+        "       The argument is a YAML string, rather than a filename.\n")
+    raise SystemExit(1)
+
+def _i(message):
+    sys.stderr.write('INFO: %s\n' % message)
+    return None
+
+def _e(message):
+    sys.stderr.write('ERROR: %s\n' % message)
+    raise SystemExit(1)
+
+def _w(message):
+    sys.stderr.write('WARN: %s\n' % message)
+    return None
+
+def _d(message):
+    if os.environ.get('DEBUG') != None:
+        sys.stderr.write('DEBUG: %s\n' % message)
+    return None
+
+def __merge(src, dst):
+    if isinstance(src, (dict)) and isinstance(dst, (dict)):
+        for (k, v) in src.items():
+            if k in dst:
+                __merge(src[k], dst[k])
+            else:
+                dst[k] = v
+    elif isinstance(src, (list)) and isinstance(dst, (list)):
+        dst.extend(src)
+    elif isinstance(src, (str)) and isinstance(dst, (str)):
+        dst = src
+    else:
+        _w('Merge not handling: type(src)==%s, type(dst)==%s\n' \
+          % (src, dst))
+    return None
+
+def merge_cc(cloud_config_list):
+    "Returns a YAML string representing one merged cloud-config."
+    if not cloud_config_list:
+        return None
+    merged = {}
+    for ccfname in cloud_config_list:
+        try:
+            f = open(ccfname, 'r')
+        except IOError:
+            _e('Failed to open cloud-config file, "%s"' % ccfname)
+        try:
+            data = yaml.load(f)
+        except Exception as ex:
+            f.close()
+            _e('Problem parsing user-data file: "%s": %s' \
+               % (ccfname, str(ex)))
+        f.close()
+        __merge(data, merged)
+    return '#cloud-config\n%%YAML 1.1\n---\n%s' % \
+            yaml.dump(merged, default_flow_style=False)
+
+def varsub(cc, vmap):
+    for k in vmap.keys():
+        cc = cc.replace(k, vmap[k])
+    return cc
+
+def compress(in_data):
+    _d("Starting compress()")
+    changed = False
+    savings = 0
+    start_size = len(in_data)
+    try:
+        dt = yaml.load(in_data)
+    except Exception as ex:
+        _e('compress(): Problem parsing input cloud-config data.')
+
+    # Merge runcmd's into a file so it can be compressed
+    if dt and dt.get('runcmd'):
+        _d("Consolidating runcmd's")
+        if dt.get('write_files') == None:
+            dt['write_files'] = []
+        runcmd_content = '#!/bin/sh'
+        for f in dt['runcmd']:
+            runcmd_content = '%s\n%s' % (runcmd_content, f)
+        dt['write_files'].append( \
+         { \
+          'path': '/opt/configger/runcmd.sh',
+          'permissions': '0500',
+          'content': runcmd_content,
+         } )
+        dt['runcmd'] = ['/opt/configger/runcmd.sh']
+
+    # Compress write_files
+    if dt and dt.get('write_files'):
+        for f in dt['write_files']:
+            _d('Compressing %s' % f['path'])
+            s1 = len(f['content'])
+            _d('  Original size = %d' % s1)
+            out_buf = StringIO.StringIO()
+            zipper = gzip.GzipFile(None, 'wb', 9, out_buf)
+            zipper.write(f['content'])
+            zipper.close()
+            c = out_buf.getvalue()
+            s2 = len(base64.b64encode(c))
+            # 9 bytes for the "!!binary " that is added to the content
+            # 15 bytes for the "encoding: gzip\n" that is added
+            _d('  Compressed size = %d (%d%%)' % \
+             (s2, int(100.0*float(s2+24)/float(s1))))
+            if s2 + 24 < s1:
+                changed = True
+                f['encoding']='gzip'
+                f['content']=c
+                savings += (s1 - (s2 + 24))
+            else:
+                _d('  Compressed size is not an improvement. ' \
+                   + 'Using uncompressed content.')
+    if changed:
+        _d('In total, cloud-config compression saved %d bytes (%d%%).' \
+           % (savings, int(float(savings)/float(start_size)*100.0)))
+        return '#cloud-config\n%%YAML 1.1\n---\n%s' % \
+         yaml.dump(dt, default_flow_style=False)
+    else:
+        _d('Returning original cloud-config data without compression.')
+        return in_data
+
+def main():
+    if '-?' in sys.argv \
+            or '-h' in sys.argv \
+            or '--help' in sys.argv:
+        usage()
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        usage()
+    if sys.argv[1] == '-s':
+        if len(sys.argv) == 3:
+            cc_list_st = sys.argv[2]
+            cc_list_dict = yaml.loads(cc_list_st)
+        else:
+            usage()
+    else:
+        if len(sys.argv) == 2:
+            fd = open(sys.argv[1], 'r')
+            cc_list_dict = yaml.load(fd)
+            fd.close()
+        else:
+            usage()
+
+    cc_list = cc_list_dict.get('cloud-configs', [])
+    var_map = cc_list_dict.get('variable-mapping', {})
+    out_file = cc_list_dict.get('output-file', False)
+
+    # merge multiple cloud-config files
+    cc_str = merge_cc(cc_list)
+    # perform variable substitution
+    cc_str = varsub(cc_str, var_map)
+    # compress
+    cc_str = compress(cc_str)
+    # output
+    if out_file:
+        fd = open(out_file, 'w')
+        fd.write(cc_str)
+        fd.close()
+    else:
+        print cc_str
+
+if __name__ == "__main__":
+    main()
+
