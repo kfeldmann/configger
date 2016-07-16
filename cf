@@ -160,7 +160,7 @@ def main():
     if sys.argv[1] == '-s':
         if len(sys.argv) == 3:
             cc_list_st = sys.argv[2]
-            cc_list_dict = yaml.loads(cc_list_st)
+            cc_list_dict = yaml.load(cc_list_st)
         else:
             usage()
     else:
