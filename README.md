@@ -13,3 +13,18 @@ Usage: cf [-s] cloud-configs.yml
     -s
        The argument is a YAML string, rather than a filename.
 ```
+## Example input YAML data
+```YAML
+# If output-file is null, stdout will be used.
+output-file: user-data.yml
+
+variable-mapping:
+  key: value
+  key: value
+  ...
+
+cloud-configs:
+- file.yml
+- file.yml
+  ...
+```
