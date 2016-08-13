@@ -9,11 +9,11 @@ which is used to bootstrap cloud server instances.
 
 ```
 $ ./cf
-Usage: cf [-s] cloud-configs.yml
+Usage: cf [-s] cf-configuration.yml
     -s
        The argument is a YAML string, rather than a filename.
 ```
-## Example input YAML data
+## Example cf-configuration YAML data
 ```YAML
 # If output-file is null, stdout will be used.
 output-file: user-data.yml
