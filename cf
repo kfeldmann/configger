@@ -6,6 +6,22 @@ Configger
 Merge, substitute variables, and compress multiple cloud-config
 files into one.
 
+   # Example input YAML data
+   #=========================
+   
+   # If output-file is null, stdout will be used.
+   output-file: user-data.yml
+   
+   variable-mapping:
+     key: value
+     key: value
+     ...
+   
+   cloud-configs:
+   - file.yml
+   - file.yml
+     ...
+
 Copyright (c) 2016, Kris Feldmann
 All rights reserved.
 
@@ -38,29 +54,16 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
+
 import sys
 import os
 import yaml
 import gzip
 import StringIO
 import base64
-
-
-# # Example input YAML data
-# #=========================
-# 
-# # If output-file is null, stdout will be used.
-# output-file: user-data.yml
-# 
-# variable-mapping:
-#   key: value
-#   key: value
-#   ...
-# 
-# cloud-configs:
-# - file.yml
-# - file.yml
-#   ...
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.encoders import encode_base64
 
 
 def usage():
@@ -128,6 +131,36 @@ def varsub(cc, vmap):
     for k in vmap.keys():
         cc = cc.replace(k, vmap[k])
     return cc
+
+def compress2(in_data):
+    _d("Starting compress2()")
+    start_size = len(in_data)
+    out_buf = StringIO.StringIO()
+    zipper = gzip.GzipFile(None, 'wb', 9, out_buf)
+    zipper.write(in_data)
+    zipper.close()
+    c = out_buf.getvalue()
+
+    combined_message = MIMEMultipart()
+    filename = "user-data.yml"
+    format_type = "application/gzip"
+    sub_message = MIMEBase("application", "gzip")
+    sub_message.set_payload(c)
+    encode_base64(sub_message)
+    sub_message.add_header('Content-Disposition', 'attachment', filename=filename)
+    combined_message.attach(sub_message)
+
+    out_data = str(combined_message)
+    end_size = len(out_data)
+    _d("Input size: %d" % start_size)
+    _d("Output size: %d" % end_size)
+    ratio = float(end_size)/float(start_size)
+    if ratio < 1.0:
+        _d("Savings: %d%%" % int(100.0 - 100.0*ratio))
+        return out_data
+    else:
+        _d("No savings. Returning unmodified input data.")
+        return in_data
 
 def compress(in_data):
     _d("Starting compress()")
@@ -218,7 +251,7 @@ def main():
     # perform variable substitution
     cc_str = varsub(cc_str, var_map)
     # compress
-    cc_str = compress(cc_str)
+    cc_str = compress2(cc_str)
     # output
     if out_file:
         fd = open(out_file, 'w')
