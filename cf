@@ -203,7 +203,11 @@ def main():
             usage()
     else:
         if len(sys.argv) == 2:
-            fd = open(sys.argv[1], 'r')
+            fd = open(
+              os.path.expandvars(
+                os.path.expanduser(sys.argv[1])
+              ),
+              'r')
             cc_list_dict = yaml.load(fd)
             fd.close()
         else:
