@@ -22,6 +22,12 @@ files into one.
    - file.yml
      ...
 
+Environment variables (useful for troubleshooting):
+  DEBUG
+        Turn on debugging output.
+  NOCOMPRESS
+        Do not compress the merged cloud-config.
+
 Copyright (c) 2016, Kris Feldmann
 All rights reserved.
 
@@ -120,7 +126,7 @@ def merge_cc(cloud_config_list):
             data = yaml.load(f)
         except Exception as ex:
             f.close()
-            _e('Problem parsing user-data file: "%s": %s' \
+            _e('Problem parsing cloud-config data: "%s": %s' \
                % (ccfname, str(ex)))
         f.close()
         __merge(data, merged)
@@ -162,65 +168,6 @@ def compress2(in_data):
         _d("No savings. Returning unmodified input data.")
         return in_data
 
-def compress(in_data):
-    _d("Starting compress()")
-    changed = False
-    savings = 0
-    start_size = len(in_data)
-    try:
-        dt = yaml.load(in_data)
-    except Exception as ex:
-        _e('compress(): Problem parsing input cloud-config data.')
-
-    # Merge runcmd's into a file so it can be compressed
-    if dt and dt.get('runcmd'):
-        _d("Consolidating runcmd's")
-        if dt.get('write_files') == None:
-            dt['write_files'] = []
-        runcmd_content = '#!/bin/sh'
-        for f in dt['runcmd']:
-            runcmd_content = '%s\n%s' % (runcmd_content, f)
-        dt['write_files'].append( \
-         { \
-          'path': '/opt/configger/runcmd.sh',
-          'permissions': '0500',
-          'content': runcmd_content,
-         } )
-        dt['runcmd'] = ['/opt/configger/runcmd.sh']
-
-    # Compress write_files
-    if dt and dt.get('write_files'):
-        for f in dt['write_files']:
-            _d('Compressing %s' % f['path'])
-            s1 = len(f['content'])
-            _d('  Original size = %d' % s1)
-            out_buf = StringIO.StringIO()
-            zipper = gzip.GzipFile(None, 'wb', 9, out_buf)
-            zipper.write(f['content'])
-            zipper.close()
-            c = out_buf.getvalue()
-            s2 = len(base64.b64encode(c))
-            # 9 bytes for the "!!binary " that is added to the content
-            # 15 bytes for the "encoding: gzip\n" that is added
-            _d('  Compressed size = %d (%d%%)' % \
-             (s2, int(100.0*float(s2+24)/float(s1))))
-            if s2 + 24 < s1:
-                changed = True
-                f['encoding']='gzip'
-                f['content']=c
-                savings += (s1 - (s2 + 24))
-            else:
-                _d('  Compressed size is not an improvement. ' \
-                   + 'Using uncompressed content.')
-    if changed:
-        _d('In total, cloud-config compression saved %d bytes (%d%%).' \
-           % (savings, int(float(savings)/float(start_size)*100.0)))
-        return '#cloud-config\n%%YAML 1.1\n---\n%s' % \
-         yaml.dump(dt, default_flow_style=False)
-    else:
-        _d('Returning original cloud-config data without compression.')
-        return in_data
-
 def main():
     if '-?' in sys.argv \
             or '-h' in sys.argv \
@@ -251,7 +198,8 @@ def main():
     # perform variable substitution
     cc_str = varsub(cc_str, var_map)
     # compress
-    cc_str = compress2(cc_str)
+    if os.environ.get('NOCOMPRESS') == None:
+        cc_str = compress2(cc_str)
     # output
     if out_file:
         fd = open(out_file, 'w')
