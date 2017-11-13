@@ -28,3 +28,7 @@ cloud-configs:
 - file.yml
   ...
 ```
+## Environment variables
+The following environment variables can be used for troubleshooting:
+* `DEBUG` - Turn on debugging output
+* `NOCOMPRESS` - Do not compress the merged cloud-config
