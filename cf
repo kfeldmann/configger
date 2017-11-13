@@ -6,6 +6,28 @@ Configger
 Merge, substitute variables, and compress multiple cloud-config
 files into one.
 
+   # Example input YAML data
+   #=========================
+   
+   # If output-file is null, stdout will be used.
+   output-file: user-data.yml
+   
+   variable-mapping:
+     key: value
+     key: value
+     ...
+   
+   cloud-configs:
+   - file.yml
+   - file.yml
+     ...
+
+Environment variables (useful for troubleshooting):
+  DEBUG
+        Turn on debugging output.
+  NOCOMPRESS
+        Do not compress the merged cloud-config.
+
 Copyright (c) 2016, Kris Feldmann
 All rights reserved.
 
@@ -38,29 +60,16 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
+
 import sys
 import os
 import yaml
 import gzip
 import StringIO
 import base64
-
-
-# # Example input YAML data
-# #=========================
-# 
-# # If output-file is null, stdout will be used.
-# output-file: user-data.yml
-# 
-# variable-mapping:
-#   key: value
-#   key: value
-#   ...
-# 
-# cloud-configs:
-# - file.yml
-# - file.yml
-#   ...
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.encoders import encode_base64
 
 
 def usage():
@@ -117,7 +126,7 @@ def merge_cc(cloud_config_list):
             data = yaml.load(f)
         except Exception as ex:
             f.close()
-            _e('Problem parsing user-data file: "%s": %s' \
+            _e('Problem parsing cloud-config data: "%s": %s' \
                % (ccfname, str(ex)))
         f.close()
         __merge(data, merged)
@@ -129,63 +138,34 @@ def varsub(cc, vmap):
         cc = cc.replace(k, vmap[k])
     return cc
 
-def compress(in_data):
-    _d("Starting compress()")
-    changed = False
-    savings = 0
+def compress2(in_data):
+    _d("Starting compress2()")
     start_size = len(in_data)
-    try:
-        dt = yaml.load(in_data)
-    except Exception as ex:
-        _e('compress(): Problem parsing input cloud-config data.')
+    out_buf = StringIO.StringIO()
+    zipper = gzip.GzipFile(None, 'wb', 9, out_buf)
+    zipper.write(in_data)
+    zipper.close()
+    c = out_buf.getvalue()
 
-    # Merge runcmd's into a file so it can be compressed
-    if dt and dt.get('runcmd'):
-        _d("Consolidating runcmd's")
-        if dt.get('write_files') == None:
-            dt['write_files'] = []
-        runcmd_content = '#!/bin/sh'
-        for f in dt['runcmd']:
-            runcmd_content = '%s\n%s' % (runcmd_content, f)
-        dt['write_files'].append( \
-         { \
-          'path': '/opt/configger/runcmd.sh',
-          'permissions': '0500',
-          'content': runcmd_content,
-         } )
-        dt['runcmd'] = ['/opt/configger/runcmd.sh']
+    combined_message = MIMEMultipart()
+    filename = "user-data.yml"
+    format_type = "application/gzip"
+    sub_message = MIMEBase("application", "gzip")
+    sub_message.set_payload(c)
+    encode_base64(sub_message)
+    sub_message.add_header('Content-Disposition', 'attachment', filename=filename)
+    combined_message.attach(sub_message)
 
-    # Compress write_files
-    if dt and dt.get('write_files'):
-        for f in dt['write_files']:
-            _d('Compressing %s' % f['path'])
-            s1 = len(f['content'])
-            _d('  Original size = %d' % s1)
-            out_buf = StringIO.StringIO()
-            zipper = gzip.GzipFile(None, 'wb', 9, out_buf)
-            zipper.write(f['content'])
-            zipper.close()
-            c = out_buf.getvalue()
-            s2 = len(base64.b64encode(c))
-            # 9 bytes for the "!!binary " that is added to the content
-            # 15 bytes for the "encoding: gzip\n" that is added
-            _d('  Compressed size = %d (%d%%)' % \
-             (s2, int(100.0*float(s2+24)/float(s1))))
-            if s2 + 24 < s1:
-                changed = True
-                f['encoding']='gzip'
-                f['content']=c
-                savings += (s1 - (s2 + 24))
-            else:
-                _d('  Compressed size is not an improvement. ' \
-                   + 'Using uncompressed content.')
-    if changed:
-        _d('In total, cloud-config compression saved %d bytes (%d%%).' \
-           % (savings, int(float(savings)/float(start_size)*100.0)))
-        return '#cloud-config\n%%YAML 1.1\n---\n%s' % \
-         yaml.dump(dt, default_flow_style=False)
+    out_data = str(combined_message)
+    end_size = len(out_data)
+    _d("Input size: %d" % start_size)
+    _d("Output size: %d" % end_size)
+    ratio = float(end_size)/float(start_size)
+    if ratio < 1.0:
+        _d("Savings: %d%%" % int(100.0 - 100.0*ratio))
+        return out_data
     else:
-        _d('Returning original cloud-config data without compression.')
+        _d("No savings. Returning unmodified input data.")
         return in_data
 
 def main():
@@ -222,7 +202,8 @@ def main():
     # perform variable substitution
     cc_str = varsub(cc_str, var_map)
     # compress
-    cc_str = compress(cc_str)
+    if os.environ.get('NOCOMPRESS') == None:
+        cc_str = compress2(cc_str)
     # output
     if out_file:
         fd = open(out_file, 'w')
