@@ -119,7 +119,10 @@ def merge_cc(cloud_config_list):
     merged = {}
     for ccfname in cloud_config_list:
         try:
-            f = open(ccfname, 'r')
+            f = open(
+              os.path.expandvars(
+                os.path.expanduser(
+                  ccfname)), 'r')
         except IOError:
             _e('Failed to open cloud-config file, "%s"' % ccfname)
         try:
@@ -206,7 +209,10 @@ def main():
         cc_str = compress2(cc_str)
     # output
     if out_file:
-        fd = open(out_file, 'w')
+        fd = open(
+               os.path.expandvars(
+                 os.path.expanduser(
+                   out_file)), 'w')
         fd.write(cc_str)
         fd.close()
     else:
