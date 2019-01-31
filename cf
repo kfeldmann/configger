@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 """
 Configger
@@ -8,15 +8,15 @@ files into one.
 
    # Example input YAML data
    #=========================
-   
+
    # If output-file is null, stdout will be used.
    output-file: user-data.yml
-   
+
    variable-mapping:
      key: value
      key: value
      ...
-   
+
    cloud-configs:
    - file.yml
    - file.yml
@@ -63,16 +63,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import sys
 import os
-import yaml
 import gzip
-import StringIO
-import base64
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.encoders import encode_base64
+import io
+
+import yaml
 
 
 def usage():
+    "Print the usage statement and exit."
     sys.stderr.write("Usage: cf [-s] cloud-configs.yml\n")
     sys.stderr.write("    -s\n")
     sys.stderr.write( \
@@ -80,23 +81,33 @@ def usage():
     raise SystemExit(1)
 
 def _i(message):
+    "Print an INFO message to stderr."
     sys.stderr.write('INFO: %s\n' % message)
     return None
 
 def _e(message):
+    "Print an ERROR message to stderr and exit."
     sys.stderr.write('ERROR: %s\n' % message)
     raise SystemExit(1)
 
 def _w(message):
+    "Print a WARN (warning) message to stderr."
     sys.stderr.write('WARN: %s\n' % message)
     return None
 
 def _d(message):
-    if os.environ.get('DEBUG') != None:
+    """
+    If the DEBUG environment variable has been set,
+    print a DEBUG message to stderr.
+    """
+    if os.environ.get('DEBUG') is not None:
         sys.stderr.write('DEBUG: %s\n' % message)
     return None
 
 def __merge(src, dst):
+    """
+    Recursively merge "src" data structure into "dst" data structure.
+    """
     if isinstance(src, (dict)) and isinstance(dst, (dict)):
         for (k, v) in src.items():
             if k in dst:
@@ -120,9 +131,9 @@ def merge_cc(cloud_config_list):
     for ccfname in cloud_config_list:
         try:
             f = open(
-              os.path.expandvars(
-                os.path.expanduser(
-                  ccfname)), 'r')
+                os.path.expandvars(
+                    os.path.expanduser(
+                        ccfname)), 'r')
         except IOError:
             _e('Failed to open cloud-config file, "%s"' % ccfname)
         try:
@@ -137,29 +148,36 @@ def merge_cc(cloud_config_list):
             yaml.dump(merged, default_flow_style=False)
 
 def varsub(cc, vmap):
-    for k in vmap.keys():
+    "Substitute variables in a cloud-config string."
+    for k in vmap:
         cc = cc.replace(k, vmap[k])
     return cc
 
 def compress2(in_data):
+    """
+    Package cloud-config document as a gzip'd MIME document.
+    If resulting data is not smaller than the original,
+    return the original instead.
+    """
     _d("Starting compress2()")
     start_size = len(in_data)
-    out_buf = StringIO.StringIO()
+    out_buf = io.BytesIO()
     zipper = gzip.GzipFile(None, 'wb', 9, out_buf)
-    zipper.write(in_data)
+    zipper.write(in_data.encode())
     zipper.close()
     c = out_buf.getvalue()
 
-    combined_message = MIMEMultipart()
-    filename = "user-data.yml"
-    format_type = "application/gzip"
+    combined_message = MIMEMultipart(boundary="=")
+    filename = "user-data.gz"
     sub_message = MIMEBase("application", "gzip")
     sub_message.set_payload(c)
     encode_base64(sub_message)
-    sub_message.add_header('Content-Disposition', 'attachment', filename=filename)
+    sub_message.add_header('Content-Disposition',
+                           'attachment',
+                           filename=filename)
     combined_message.attach(sub_message)
 
-    out_data = str(combined_message)
+    out_data = combined_message.as_string(unixfrom=False)
     end_size = len(out_data)
     _d("Input size: %d" % start_size)
     _d("Output size: %d" % end_size)
@@ -167,11 +185,11 @@ def compress2(in_data):
     if ratio < 1.0:
         _d("Savings: %d%%" % int(100.0 - 100.0*ratio))
         return out_data
-    else:
-        _d("No savings. Returning unmodified input data.")
-        return in_data
+    _d("No savings. Returning unmodified input data.")
+    return in_data
 
 def main():
+    "Run the program."
     if '-?' in sys.argv \
             or '-h' in sys.argv \
             or '--help' in sys.argv:
@@ -187,10 +205,10 @@ def main():
     else:
         if len(sys.argv) == 2:
             fd = open(
-              os.path.expandvars(
-                os.path.expanduser(sys.argv[1])
-              ),
-              'r')
+                os.path.expandvars(
+                    os.path.expanduser(sys.argv[1])
+                ),
+                'r')
             cc_list_dict = yaml.load(fd)
             fd.close()
         else:
@@ -205,19 +223,18 @@ def main():
     # perform variable substitution
     cc_str = varsub(cc_str, var_map)
     # compress
-    if os.environ.get('NOCOMPRESS') == None:
+    if os.environ.get('NOCOMPRESS') is None:
         cc_str = compress2(cc_str)
     # output
     if out_file:
         fd = open(
-               os.path.expandvars(
-                 os.path.expanduser(
-                   out_file)), 'w')
+            os.path.expandvars(
+                os.path.expanduser(
+                    out_file)), 'w')
         fd.write(cc_str)
         fd.close()
     else:
-        print cc_str
+        sys.stdout.write('%s\n' % cc_str)
 
 if __name__ == "__main__":
     main()
-
