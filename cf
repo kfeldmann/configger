@@ -138,7 +138,7 @@ def merge_cc(cloud_config_list):
             _e('Failed to open cloud-config file, "%s"' % ccfname)
         try:
             data = yaml.load(f)
-        except Exception as ex:
+        except yaml.YAMLError as ex:
             f.close()
             _e('Problem parsing cloud-config data: "%s": %s' \
                % (ccfname, str(ex)))
