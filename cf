@@ -223,10 +223,7 @@ def main():
     var_map = cc_list_dict.get('variable-mapping', {})
     out_file = cc_list_dict.get('output-file', None)
     out_enc = cc_list_dict.get('output-encoding', None)
-    if out_enc == 'None' \
-            or out_enc == 'none' \
-            or out_enc == 'Null' \
-            or out_enc == 'null':
+    if out_enc in ('None', 'none', 'Null', 'null'):
         out_enc = None
     if out_enc not in (None, 'base64'):
         _e('Unsupported output encoding type. Supported types are: null, "base64"')
