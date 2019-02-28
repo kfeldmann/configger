@@ -18,6 +18,10 @@ Usage: cf [-s] cf-configuration.yml
 # If output-file is null, stdout will be used.
 output-file: user-data.yml
 
+# Use 'base64' here to encode the entire output as one line
+# of base64 (useful in an AWS launch-template)
+output-encoding: null
+
 variable-mapping:
   key: value
   key: value
@@ -31,4 +35,4 @@ cloud-configs:
 ## Environment variables
 The following environment variables can be used for troubleshooting:
 * `DEBUG` - Turn on debugging output
-* `NOCOMPRESS` - Do not compress the merged cloud-config
+* `NOCOMPRESS` - Do not compress or encode the merged cloud-config
