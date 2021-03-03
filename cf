@@ -167,7 +167,16 @@ def compress2(in_data):
     _d("Starting compress2()")
     start_size = len(in_data)
     out_buf = io.BytesIO()
-    zipper = gzip.GzipFile(None, 'wb', 9, out_buf)
+
+    # The last arg to GzipFile() is a timestamp, representing the
+    # last-modified time of the source file. Tools like Terraform
+    # use a checksum of the overall output of configger to determine
+    # whether anything has changed. If this timestamp is not
+    # provided, the gzip library will use the current time. This causes
+    # Terraform to always think the user-data has changed, so it
+    # wants to re-make the launch configuration. To prevent this
+    # we use a fixed 0.0 timestamp here.
+    zipper = gzip.GzipFile(None, 'wb', 9, out_buf, 0.0)
     zipper.write(in_data.encode())
     zipper.close()
     c = out_buf.getvalue()
