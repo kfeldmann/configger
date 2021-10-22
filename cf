@@ -142,7 +142,7 @@ def merge_cc(cloud_config_list):
         except IOError:
             _e('Failed to open cloud-config file, "%s"' % ccfname)
         try:
-            data = yaml.load(f, Loader=yaml.FullLoader)
+            data = yaml.load(f, Loader=yaml.Loader)
         except yaml.YAMLError as ex:
             f.close()
             _e('Problem parsing cloud-config data: "%s": %s' \
@@ -213,7 +213,7 @@ def main():
     if sys.argv[1] == '-s':
         if len(sys.argv) == 3:
             cc_list_st = sys.argv[2]
-            cc_list_dict = yaml.load(cc_list_st, Loader=yaml.FullLoader)
+            cc_list_dict = yaml.load(cc_list_st, Loader=yaml.Loader)
         else:
             usage()
     else:
@@ -223,7 +223,7 @@ def main():
                     os.path.expanduser(sys.argv[1])
                 ),
                 'r')
-            cc_list_dict = yaml.load(fd, Loader=yaml.FullLoader)
+            cc_list_dict = yaml.load(fd, Loader=yaml.Loader)
             fd.close()
         else:
             usage()
